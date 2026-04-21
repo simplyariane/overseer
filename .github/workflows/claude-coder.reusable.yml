@@ -1,4 +1,4 @@
-name: Claude Coder (reusable)
+name: Claude Worker — Coder (reusable)
 
 on:
   workflow_call:
@@ -21,7 +21,7 @@ permissions:
 jobs:
   code:
     name: Implement issue
-    runs-on: [self-hosted, macOS]
+    runs-on: [self-hosted, Windows]
     if: github.event.issue.state == 'open'
     timeout-minutes: 60
     env:
@@ -36,7 +36,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Add tools to PATH
+        shell: powershell
+        run: |
+          'C:\Program Files\Git\bin',
+          'C:\Users\ariane\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\npm',
+          'C:\Program Files\GitHub CLI' |
+          Add-Content -Path $env:GITHUB_PATH
+
       - name: Implement and open PR
+        shell: bash
         run: |
           printf '%s\n' "$ISSUE_BODY" > /tmp/issue-body.txt
           PROMPT="You are a senior software engineer working on the repository $REPO.
@@ -50,18 +59,17 @@ Your job:
 1. Read the relevant source files to understand the codebase structure and conventions.
 2. Check CLAUDE.md, AGENTS.md, or CONTRIBUTING.md if they exist.
 3. Create a feature branch: git checkout -b issue-$ISSUE_NUMBER
-4. Implement the changes that resolve the issue. Stay tightly scoped — only change what the issue requires.
+4. Implement the changes that resolve the issue. Stay tightly scoped.
 5. Write or update tests for your changes if the repo has a test suite.
 6. Commit: git add -A && git commit -m 'Implement: $ISSUE_TITLE (#$ISSUE_NUMBER)'
 7. Push: git push -u origin issue-$ISSUE_NUMBER
-8. Open a PR with: gh pr create --title '$ISSUE_TITLE (#$ISSUE_NUMBER)' --body 'Resolves #$ISSUE_NUMBER\n\n[Brief description of what changed and why]' --base main
-9. After the PR is open, comment on the issue with the PR link: gh issue comment $ISSUE_NUMBER --body 'PR opened: [paste the PR URL here]'
+8. Open a PR: gh pr create --title '$ISSUE_TITLE (#$ISSUE_NUMBER)' --body 'Resolves #$ISSUE_NUMBER' --base main
+9. Comment on the issue with the PR link: gh issue comment $ISSUE_NUMBER --body 'PR opened: [paste the PR URL]'
 
 Rules:
 - NEVER push to main directly.
-- NEVER close the issue yourself — the Overseer will close it on merge.
-- If the issue is ambiguous, make reasonable assumptions and document them in the PR body.
-- The PR will be reviewed by the Overseer. If changes are needed, you will receive a separate task.
+- NEVER close the issue — the Overseer closes it on merge.
+- The PR will be reviewed by the Overseer. If rejected, you will receive a fix issue.
 
 Begin."
 

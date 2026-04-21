@@ -1,4 +1,4 @@
-name: Claude Fixer (reusable)
+name: Claude Worker — Fixer (reusable)
 
 on:
   workflow_call:
@@ -18,7 +18,7 @@ permissions:
 jobs:
   fix:
     name: Fix Overseer blockers
-    runs-on: [self-hosted, macOS]
+    runs-on: [self-hosted, Windows]
     timeout-minutes: 60
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -26,15 +26,24 @@ jobs:
       ISSUE_BODY: ${{ inputs.issue_body }}
       REPO: ${{ github.repository }}
     steps:
-      - name: Extract PR info and checkout branch
+      - name: Add tools to PATH
+        shell: powershell
+        run: |
+          'C:\Program Files\Git\bin',
+          'C:\Users\ariane\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\npm',
+          'C:\Program Files\GitHub CLI' |
+          Add-Content -Path $env:GITHUB_PATH
+
+      - name: Extract PR info
         id: pr-info
+        shell: bash
         run: |
           printf '%s\n' "$ISSUE_BODY" > /tmp/fix-issue-body.txt
           PR_NUMBER=$(grep -oE 'PR #[0-9]+' /tmp/fix-issue-body.txt | grep -oE '[0-9]+' | head -1)
-          PR_BRANCH=$(grep -oE '`[^`]+`' /tmp/fix-issue-body.txt | head -1 | tr -d '`')
-          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-          echo "pr_branch=$PR_BRANCH" >> $GITHUB_OUTPUT
-          echo "PR #$PR_NUMBER on branch $PR_BRANCH"
+          PR_BRANCH=$(grep -oE '`[^`]+`' /tmp/fix-issue-body.txt | grep -v 'agent-fix' | head -1 | tr -d '`')
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "pr_branch=$PR_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "Extracted: PR #$PR_NUMBER on branch $PR_BRANCH"
 
       - name: Checkout PR branch
         uses: actions/checkout@v4
@@ -43,26 +52,25 @@ jobs:
           ref: ${{ steps.pr-info.outputs.pr_branch }}
 
       - name: Fix blockers and push
+        shell: bash
         env:
           PR_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
           PR_BRANCH: ${{ steps.pr-info.outputs.pr_branch }}
         run: |
-          PROMPT="You are a senior software engineer. The automated Overseer has rejected PR #$PR_NUMBER in $REPO.
+          printf '%s\n' "$ISSUE_BODY" > /tmp/fix-issue-body.txt
+          PROMPT="You are a senior software engineer. The automated Overseer has rejected PR #$PR_NUMBER in $REPO and created this fix task.
 
-You must fix every [BLOCKER] listed below. Do not change anything else.
-
-Full fix task:
+Full fix instructions:
 $(cat /tmp/fix-issue-body.txt)
 
 Your job:
 1. Read each [BLOCKER] carefully — it includes file:line, what is wrong, and the exact fix.
-2. Read the affected files in full to understand context before editing.
-3. Implement every fix exactly as described.
-4. Do NOT touch any code the Overseer did not flag as a blocker.
-5. Run existing tests if the repo has them.
-6. Commit: git add -A && git commit -m 'Fix Overseer blockers on PR #$PR_NUMBER'
-7. Push: git push origin $PR_BRANCH
-8. Close the fix issue: gh issue close $FIX_ISSUE_NUMBER --comment 'Fixes pushed to PR #$PR_NUMBER. Overseer will re-review automatically.'
+2. Read the affected source files in full before editing.
+3. Implement every fix exactly as described. Do NOT touch any code not flagged by the Overseer.
+4. Run existing tests if the repo has them.
+5. Commit your fixes: git add -A && git commit -m 'Fix Overseer blockers (PR #$PR_NUMBER)'
+6. Push: git push origin $PR_BRANCH
+7. Close the fix issue: gh issue close $FIX_ISSUE_NUMBER --comment 'Fixes pushed to PR #$PR_NUMBER — Overseer will re-review automatically.'
 
 The Overseer re-reviews on every push. You will receive another fix issue if blockers remain.
 
