@@ -25,9 +25,13 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Add Git bash to PATH
+      - name: Add tools to PATH
         shell: powershell
-        run: Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
+        run: |
+          'C:\Program Files\Git\bin',
+          'C:\Users\ariane\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\npm',
+          'C:\Program Files\GitHub CLI' |
+          Add-Content -Path $env:GITHUB_PATH
 
       - name: Run Claude reviewer
         shell: bash
