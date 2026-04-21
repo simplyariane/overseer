@@ -15,7 +15,35 @@ jobs:
   review:
     name: Strict Claude code audit
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    if: github.event.pull_request.draft == false
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
-      - name: Test
-        run: echo "Hello from reusable workflow"
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Restore Claude credentials
+        run: |
+          mkdir -p ~/.claude
+          printf '%s' "$CREDS" > ~/.claude/.credentials.json
+        env:
+          CREDS: ${{ secrets.CLAUDE_CREDENTIALS }}
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code --quiet 2>/dev/null
+
+      - name: Run Claude reviewer
+        run: |
+          PROMPT=$(echo "WW91IGFyZSBhIHN0cmljdCBzZW5pb3Igc3RhZmYgZW5naW5lZXIgcGVyZm9ybWluZyBhIHByZS1tZXJnZSBjb2RlIHJldmlldy4KVGhlIFBSIHdhcyBvcGVuZWQgYnkgYW4gQUkgYWdlbnQuIEEgaHVtYW4gbWFpbnRhaW5lciByZWxpZXMgc29sZWx5IG9uIHlvdXIgdmVyZGljdC4KClN0ZXAgMSAtIEdhdGhlciBjb250ZXh0OgogIGdoIHByIHZpZXcgJFBSX05VTUJFUiAtLWpzb24gdGl0bGUsYm9keSxmaWxlcyxhZGRpdGlvbnMsZGVsZXRpb25zLGNvbW1pdHMKICBnaCBwciBkaWZmICRQUl9OVU1CRVIKRm9yIGV2ZXJ5IGZpbGUgaW4gdGhlIGRpZmYsIHJlYWQgdGhlIEZVTEwgZmlsZSwgbm90IGp1c3QgdGhlIGh1bmsuCgpTdGVwIDIgLSBBdWRpdCBlYWNoIG9mIHRoZSBmb2xsb3dpbmcuIEZsYWcgQkxPQ0tFUlMgYW5kIE5JVFMgc2VwYXJhdGVseS4KCjEuIENvcnJlY3RuZXNzOiBsb2dpYyBidWdzLCBvZmYtYnktb25lcywgd3JvbmcgZWRnZSBjYXNlcywgYnJva2VuIGVycm9yIHBhdGhzLAogICByYWNlIGNvbmRpdGlvbnMsIHVuaGFuZGxlZCBudWxscywgc3dhcHBlZCBhcmd1bWVudHMuCjIuIFNlY3VyaXR5OiBjb21tYW5kIGluamVjdGlvbiwgU1FMaSwgWFNTLCBTU1JGLCBwYXRoIHRyYXZlcnNhbCwgYXV0aCBieXBhc3MsCiAgIHNlY3JldC9jcmVkZW50aWFsIGV4cG9zdXJlLCB1bnNhZmUgZGVzZXJpYWxpemF0aW9uLCB1bnZhbGlkYXRlZCB1c2VyIGlucHV0LAogICByZWdleCBEb1MuCjMuIFRlc3QgY292ZXJhZ2U6IGV2ZXJ5IGNoYW5nZWQvYWRkZWQgY29kZSBwYXRoIHdpdGggbm9uLXRyaXZpYWwgbG9naWMgbmVlZHMgYSB0ZXN0LgogICBUZXN0cyBtdXN0IGFjdHVhbGx5IGV4ZXJjaXNlIHRoZSBjaGFuZ2UgKG5vIHRyaXZpYWwgYXNzZXJ0cywgbm8gb3Zlci1tb2NraW5nKS4KNC4gQnJlYWtpbmcgY2hhbmdlczogYW55dGhpbmcgcmVtb3ZlZCBvciByZW5hbWVkIHRoYXQgY2FsbGVycyBpbiB0aGUgcmVwbyBkZXBlbmQgb24uCiAgIFNlYXJjaCB0aGUgcmVwbyBmb3IgdXNhZ2VzIGJlZm9yZSBjb25jbHVkaW5nIHNvbWV0aGluZyBpcyBzYWZlIHRvIHJlbW92ZS4KNS4gU2NvcGU6IHVucmVsYXRlZCByZWZhY3RvcnMsIGRyaXZlLWJ5IHJlZm9ybWF0dGluZywgY29tbWVudGVkLW91dCBjb2RlLCBkZWFkIGNvZGUsCiAgIG9yIHVucmVzb2x2ZWQgVE9ET3MgYWxsIGJsb2NrIGFwcHJvdmFsLgo2LiBSZXBvIGNvbnZlbnRpb25zOiByZWFkIENMQVVERS5tZCwgQUdFTlRTLm1kLCBDT05UUklCVVRJTkcubWQgYW5kIG5laWdoYm9yaW5nIGNvZGUuCiAgIERldmlhdGlvbnMgbXVzdCBiZSBqdXN0aWZpZWQgaW4gdGhlIFBSIGRlc2NyaXB0aW9uLgo3LiBRdWFsaXR5OiB1bmNsZWFyIG5hbWluZywgc2lsZW50IGVycm9yIHN3YWxsb3dpbmcsIGlnbm9yZWQgdHlwZS9saW50IGVycm9ycywgbWlzc2luZwogICBoYW5kbGluZyBvZiBkb2N1bWVudGVkIGVycm9yIGNhc2VzLgoKUnVsZXM6Ci0gTWlub3Igc3R5bGUgbml0cyBkbyBOT1QgYmxvY2sgYXBwcm92YWwuCi0gQW55dGhpbmcgaW4gY2F0ZWdvcmllcyAxLTUgSVMgYSBibG9ja2VyLgotIFRpZSBnb2VzIHRvIFJFUVVFU1QgQ0hBTkdFUy4gSWYgeW91IGNhbm5vdCB2ZXJpZnkgc29tZXRoaW5nIGJ5IHJlYWRpbmcgdGhlIGNvZGUsCiAgcmVxdWVzdCBjaGFuZ2VzIGFuZCBleHBsYWluIHdoYXQgeW91IGNvdWxkIG5vdCB2ZXJpZnkuCi0gTkVWRVIgYXBwcm92ZSBpZiBub24tdHJpdmlhbCBsb2dpYyBpcyBhZGRlZCB3aXRob3V0IHRlc3RzLgotIE5FVkVSIHB1c2ggY29tbWl0cywgbWVyZ2UsIG9yIGNsb3NlIHRoZSBQUi4KLSBJZiBhIHNlY3JldCBvciBjcmVkZW50aWFsIGFwcGVhcnMgYW55d2hlcmUgaW4gdGhlIGRpZmYsIHJlcXVlc3QgY2hhbmdlcyBpbW1lZGlhdGVseQogIGFuZCBmbGFnIGl0IGFzIFtTRUNVUklUWSBCTE9DS0VSXS4KClN0ZXAgMyAtIFdyaXRlIC90bXAvdmVyZGljdC5tZCB3aXRoOgogIC0gT25lIHBhcmFncmFwaCBleGVjdXRpdmUgc3VtbWFyeS4KICAtIE51bWJlcmVkIGxpc3Qgb2YgZXZlcnkgW0JMT0NLRVJdIHdpdGg6IGZpbGU6bGluZSwgd2hhdCBpcyB3cm9uZywgZXhhY3QgZml4IG5lZWRlZC4KICAtIExpc3Qgb2YgW05JVF1zIChub24tYmxvY2tpbmcsIG9wdGlvbmFsKS4KICAtICJOZXh0IHN0ZXBzIGZvciB0aGUgYXV0aG9yIjogYSBzaG9ydCBwYXJhZ3JhcGggdGVsbGluZyB0aGUgYWdlbnQgZXhhY3RseSB3aGF0CiAgICB0byBjaGFuZ2Ugc28gaXQgY2FuIHJldmlzZSBhbmQgcmVzdWJtaXQuCgpTdGVwIDQgLSBQb3N0IHRoZSB2ZXJkaWN0OgogIElmIHplcm8gQkxPQ0tFUnM6CiAgICBnaCBwciByZXZpZXcgJFBSX05VTUJFUiAtLWFwcHJvdmUgLS1ib2R5LWZpbGUgL3RtcC92ZXJkaWN0Lm1kCiAgT3RoZXJ3aXNlOgogICAgZ2ggcHIgcmV2aWV3ICRQUl9OVU1CRVIgLS1yZXF1ZXN0LWNoYW5nZXMgLS1ib2R5LWZpbGUgL3RtcC92ZXJkaWN0Lm1kCgpCZWdpbi4K" | base64 -d)
+          claude --print \
+            --model claude-opus-4-6 \
+            --effort xhigh \
+            --max-turns 40 \
+            --dangerously-skip-permissions \
+            --output-format text \
+            "$PROMPT"
