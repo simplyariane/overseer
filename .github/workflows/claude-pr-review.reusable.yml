@@ -3,23 +3,11 @@ name: Claude PR Review (reusable)
 on:
   workflow_call:
     secrets:
-      CLAUDE_CODE_OAUTH_TOKEN:
+      CLAUDE_CREDENTIALS:
         required: true
-        description: OAuth token from `claude setup-token`.
-      REVIEWER_BOT_PAT:
-        required: false
-        description: Optional PAT for the reviewer bot account. Falls back to GITHUB_TOKEN if not set or invalid.
-    inputs:
-      bot_name:
-        type: string
-        required: false
-        default: ""
-        description: Reviewer bot GitHub username. Leave empty to use the default github-actions[bot] identity.
-      bot_id:
-        type: string
-        required: false
-        default: ""
-        description: Reviewer bot numeric GitHub user ID.
+        description: |
+          Full contents of ~/.claude/.credentials.json from the account whose
+          Claude Max/Pro subscription pays for the review.
 
 permissions:
   contents: read
@@ -32,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
     timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v4
@@ -39,68 +29,99 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
+      - name: Restore Claude credentials
+        run: |
+          mkdir -p ~/.claude
+          printf '%s' '${{ secrets.CLAUDE_CREDENTIALS }}' > ~/.claude/.credentials.json
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code --quiet 2>/dev/null
+
+      - name: Write review prompt
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          cat > /tmp/review-prompt.txt << 'PROMPT_EOF'
+          You are a strict senior staff engineer performing a pre-merge code review.
+          The PR was opened by an AI agent. A human maintainer relies solely on your verdict.
+
+          Context:
+          - PR number: PR_NUMBER_PLACEHOLDER
+          - Repo: REPO_PLACEHOLDER
+          - Base: BASE_REF_PLACEHOLDER @ BASE_SHA_PLACEHOLDER
+          - Head: HEAD_REF_PLACEHOLDER @ HEAD_SHA_PLACEHOLDER
+          - The PR head is checked out in the current working directory.
+
+          Step 1 — Gather context:
+            gh pr view PR_NUMBER_PLACEHOLDER --json title,body,files,additions,deletions,commits
+            gh pr diff PR_NUMBER_PLACEHOLDER
+          For every file in the diff, read the FULL file, not just the hunk.
+
+          Step 2 — Audit each of the following. Flag BLOCKERS and NITS separately.
+
+          1. Correctness — logic bugs, off-by-ones, wrong edge cases, broken error paths,
+             race conditions, unhandled nulls, swapped arguments.
+          2. Security — command injection, SQLi, XSS, SSRF, path traversal, auth bypass,
+             secret/credential exposure, unsafe deserialization, unvalidated user input,
+             regex DoS.
+          3. Test coverage — every changed/added code path with non-trivial logic needs a test.
+             Tests must actually exercise the change (no trivial asserts, no over-mocking).
+          4. Breaking changes — anything removed or renamed that callers in the repo depend on.
+             Search the repo for usages before concluding something is safe to remove.
+          5. Scope — unrelated refactors, drive-by reformatting, commented-out code, dead code,
+             or unresolved TODOs all block approval.
+          6. Repo conventions — read CLAUDE.md / AGENTS.md / CONTRIBUTING.md and neighboring code.
+             Deviations must be justified in the PR description.
+          7. Quality — unclear naming, silent error swallowing, ignored type/lint errors, missing
+             handling of documented error cases.
+
+          Rules:
+          - Minor style nits do NOT block approval.
+          - Anything in categories 1–5 IS a blocker.
+          - Tie goes to REQUEST CHANGES. If you cannot verify something by reading the code,
+            request changes and explain what you could not verify.
+          - NEVER approve if non-trivial logic is added without tests.
+          - NEVER push commits, merge, or close the PR.
+          - If a secret or credential appears anywhere in the diff, request changes immediately
+            and flag it as [SECURITY BLOCKER].
+
+          Step 3 — Write /tmp/verdict.md with:
+            • One paragraph executive summary.
+            • Numbered list of every [BLOCKER] with: file:line, what is wrong, exact fix needed.
+            • List of [NIT]s (non-blocking, optional).
+            • "Next steps for the author" — a short paragraph telling the agent exactly what
+              to change so it can revise and resubmit.
+
+          Step 4 — Post the verdict:
+            If zero BLOCKERs:
+              gh pr review PR_NUMBER_PLACEHOLDER --approve --body-file /tmp/verdict.md
+            Otherwise:
+              gh pr review PR_NUMBER_PLACEHOLDER --request-changes --body-file /tmp/verdict.md
+
+          Begin.
+          PROMPT_EOF
+
+          # Substitute the real values
+          sed -i \
+            -e "s/PR_NUMBER_PLACEHOLDER/$PR_NUMBER/g" \
+            -e "s/REPO_PLACEHOLDER/$REPO/g" \
+            -e "s/BASE_REF_PLACEHOLDER/$BASE_REF/g" \
+            -e "s/BASE_SHA_PLACEHOLDER/$BASE_SHA/g" \
+            -e "s/HEAD_REF_PLACEHOLDER/$HEAD_REF/g" \
+            -e "s/HEAD_SHA_PLACEHOLDER/$HEAD_SHA/g" \
+            /tmp/review-prompt.txt
+
       - name: Run Claude reviewer
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.REVIEWER_BOT_PAT || secrets.GITHUB_TOKEN }}
-          bot_name: ${{ inputs.bot_name }}
-          bot_id: ${{ inputs.bot_id }}
-          allowed_bots: "*"
-          use_sticky_comment: "true"
-          settings: |
-            {
-              "model": "claude-opus-4-6[1m]",
-              "effortLevel": "xhigh"
-            }
-          claude_args: |
-            --max-turns 40
-          prompt: |
-            You are a strict senior staff engineer performing a pre-merge code review.
-            The PR was opened by an AI agent. A human maintainer will rely on your verdict.
-            You are authenticated as a separate GitHub bot account, so you CAN use `gh pr review --approve` or `--request-changes`.
-
-            ## Context gathering
-
-            - PR number: ${{ github.event.pull_request.number }}
-            - Repo: ${{ github.repository }}
-            - Base: ${{ github.event.pull_request.base.ref }} @ ${{ github.event.pull_request.base.sha }}
-            - Head: ${{ github.event.pull_request.head.ref }} @ ${{ github.event.pull_request.head.sha }}
-            - The PR head is checked out in the current working directory.
-
-            Use `gh pr view ${{ github.event.pull_request.number }} --json title,body,files,additions,deletions,commits` and `gh pr diff ${{ github.event.pull_request.number }}` to inspect the change.
-            For any touched file, ALSO read the full file, not just the diff hunk — a diff can hide issues.
-
-            ## Audit criteria — REQUEST CHANGES if ANY fail
-
-            1. **Correctness.** Does the code do what the PR title/description claims? Off-by-ones, wrong edge cases, broken error paths, race conditions, lost writes, unhandled nulls, swapped arguments.
-            2. **Security.** Command injection, SQLi, XSS, SSRF, path traversal, auth bypass, secret exposure, unsafe deserialization, unvalidated user input at any trust boundary, regex DoS.
-            3. **Test coverage.** Every new or changed code path with non-trivial logic needs a test. Tests must actually exercise the change (not snapshot-only, not trivial `assert true`, not mocked so thoroughly they can't fail).
-            4. **Breaking changes.** Public API / schema / config changes must be intentional and called out in the PR description. Search the repo for callers of anything removed or renamed.
-            5. **Scope.** Unrelated refactors, drive-by reformatting, commented-out code, dead code, or placeholder TODOs that should have been resolved — all block approval.
-            6. **Repo conventions.** Read CLAUDE.md, AGENTS.md, CONTRIBUTING.md, and neighboring code. New code must follow existing patterns unless the PR explicitly justifies deviating.
-            7. **Quality.** Unclear naming for anything non-trivial, silent error swallowing, ignored linter/type errors, missing handling of already-documented error cases.
-
-            Minor style/wording nits are NOT blockers but may be noted. Anything in 1–5 IS a blocker.
-            Tie goes to REQUEST CHANGES. If you have any uncertainty you cannot resolve by reading code, request changes and explain what you could not verify.
-
-            ## How to post the review
-
-            1. For each concrete issue, cite `path:line` and explain both the problem and the concrete fix.
-            2. Tag each issue `[BLOCKER]` or `[NIT]`. Group them by category.
-            3. Emit your final verdict with the `gh` CLI on the PR branch:
-               - If zero `[BLOCKER]` items: `gh pr review ${{ github.event.pull_request.number }} --approve --body-file /tmp/verdict.md`
-               - Otherwise: `gh pr review ${{ github.event.pull_request.number }} --request-changes --body-file /tmp/verdict.md`
-
-               Write `/tmp/verdict.md` first with: one-paragraph summary; then a numbered list of every `[BLOCKER]` with file:line and remediation; then `[NIT]`s; then a short "what the author should do next" section so the originating agent has clear, actionable next steps.
-
-            ## Hard rules
-
-            - NEVER push commits, merge the PR, close it, or run `gh pr merge`.
-            - NEVER modify the PR branch.
-            - NEVER approve if a test is missing for non-trivial changed logic.
-            - NEVER approve on "looks fine" — cite the specific checks you ran.
-            - If the diff is empty or only whitespace, request changes with explanation.
-            - If secrets or credentials appear anywhere in the diff, request changes immediately and flag it prominently.
-
-            Begin.
+        run: |
+          claude --print \
+            --model claude-opus-4-6 \
+            --effort xhigh \
+            --max-turns 40 \
+            --dangerously-skip-permissions \
+            --output-format text \
+            "$(cat /tmp/review-prompt.txt)"
