@@ -27,7 +27,7 @@ jobs:
 
       - name: Add Git bash to PATH
         shell: powershell
-        run: echo "C:\Program Files\Git\bin" | Add-Content -Path $env:GITHUB_PATH -Value 'C:Program FilesGitbin'
+        run: Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\Git\bin'
 
       - name: Run Claude reviewer
         shell: bash
