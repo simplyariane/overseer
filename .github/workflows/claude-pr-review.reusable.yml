@@ -1,20 +1,21 @@
 name: Claude PR Review (reusable)
 
 on:
-  workflow_call:
-    secrets:
-      CLAUDE_CREDENTIALS:
-        required: true
+  workflow_call: {}
 
 permissions:
   contents: read
   pull-requests: write
   issues: write
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   review:
     name: Strict Claude code audit
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.event.pull_request.draft == false
     timeout-minutes: 30
     env:
@@ -26,16 +27,6 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Restore Claude credentials
-        run: |
-          mkdir -p ~/.claude
-          printf '%s' "$CREDS" > ~/.claude/.credentials.json
-        env:
-          CREDS: ${{ secrets.CLAUDE_CREDENTIALS }}
-
-      - name: Install Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code --quiet 2>/dev/null
 
       - name: Run Claude reviewer
         run: |
