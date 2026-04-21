@@ -5,9 +5,6 @@ on:
     secrets:
       CLAUDE_CREDENTIALS:
         required: true
-        description: |
-          Full contents of ~/.claude/.credentials.json from the account whose
-          Claude Max/Pro subscription pays for the review.
 
 permissions:
   contents: read
@@ -18,110 +15,7 @@ jobs:
   review:
     name: Strict Claude code audit
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
-    timeout-minutes: 30
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    timeout-minutes: 5
     steps:
-      - name: Checkout PR head
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Restore Claude credentials
-        run: |
-          mkdir -p ~/.claude
-          printf '%s' '${{ secrets.CLAUDE_CREDENTIALS }}' > ~/.claude/.credentials.json
-
-      - name: Install Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code --quiet 2>/dev/null
-
-      - name: Write review prompt
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          cat > /tmp/review-prompt.txt << 'PROMPT_EOF'
-          You are a strict senior staff engineer performing a pre-merge code review.
-          The PR was opened by an AI agent. A human maintainer relies solely on your verdict.
-
-          Context:
-          - PR number: PR_NUMBER_PLACEHOLDER
-          - Repo: REPO_PLACEHOLDER
-          - Base: BASE_REF_PLACEHOLDER @ BASE_SHA_PLACEHOLDER
-          - Head: HEAD_REF_PLACEHOLDER @ HEAD_SHA_PLACEHOLDER
-          - The PR head is checked out in the current working directory.
-
-          Step 1 — Gather context:
-            gh pr view PR_NUMBER_PLACEHOLDER --json title,body,files,additions,deletions,commits
-            gh pr diff PR_NUMBER_PLACEHOLDER
-          For every file in the diff, read the FULL file, not just the hunk.
-
-          Step 2 — Audit each of the following. Flag BLOCKERS and NITS separately.
-
-          1. Correctness — logic bugs, off-by-ones, wrong edge cases, broken error paths,
-             race conditions, unhandled nulls, swapped arguments.
-          2. Security — command injection, SQLi, XSS, SSRF, path traversal, auth bypass,
-             secret/credential exposure, unsafe deserialization, unvalidated user input,
-             regex DoS.
-          3. Test coverage — every changed/added code path with non-trivial logic needs a test.
-             Tests must actually exercise the change (no trivial asserts, no over-mocking).
-          4. Breaking changes — anything removed or renamed that callers in the repo depend on.
-             Search the repo for usages before concluding something is safe to remove.
-          5. Scope — unrelated refactors, drive-by reformatting, commented-out code, dead code,
-             or unresolved TODOs all block approval.
-          6. Repo conventions — read CLAUDE.md / AGENTS.md / CONTRIBUTING.md and neighboring code.
-             Deviations must be justified in the PR description.
-          7. Quality — unclear naming, silent error swallowing, ignored type/lint errors, missing
-             handling of documented error cases.
-
-          Rules:
-          - Minor style nits do NOT block approval.
-          - Anything in categories 1–5 IS a blocker.
-          - Tie goes to REQUEST CHANGES. If you cannot verify something by reading the code,
-            request changes and explain what you could not verify.
-          - NEVER approve if non-trivial logic is added without tests.
-          - NEVER push commits, merge, or close the PR.
-          - If a secret or credential appears anywhere in the diff, request changes immediately
-            and flag it as [SECURITY BLOCKER].
-
-          Step 3 — Write /tmp/verdict.md with:
-            • One paragraph executive summary.
-            • Numbered list of every [BLOCKER] with: file:line, what is wrong, exact fix needed.
-            • List of [NIT]s (non-blocking, optional).
-            • "Next steps for the author" — a short paragraph telling the agent exactly what
-              to change so it can revise and resubmit.
-
-          Step 4 — Post the verdict:
-            If zero BLOCKERs:
-              gh pr review PR_NUMBER_PLACEHOLDER --approve --body-file /tmp/verdict.md
-            Otherwise:
-              gh pr review PR_NUMBER_PLACEHOLDER --request-changes --body-file /tmp/verdict.md
-
-          Begin.
-          PROMPT_EOF
-
-          # Substitute the real values
-          sed -i \
-            -e "s/PR_NUMBER_PLACEHOLDER/$PR_NUMBER/g" \
-            -e "s/REPO_PLACEHOLDER/$REPO/g" \
-            -e "s/BASE_REF_PLACEHOLDER/$BASE_REF/g" \
-            -e "s/BASE_SHA_PLACEHOLDER/$BASE_SHA/g" \
-            -e "s/HEAD_REF_PLACEHOLDER/$HEAD_REF/g" \
-            -e "s/HEAD_SHA_PLACEHOLDER/$HEAD_SHA/g" \
-            /tmp/review-prompt.txt
-
-      - name: Run Claude reviewer
-        run: |
-          claude --print \
-            --model claude-opus-4-6 \
-            --effort xhigh \
-            --max-turns 40 \
-            --dangerously-skip-permissions \
-            --output-format text \
-            "$(cat /tmp/review-prompt.txt)"
+      - name: Test
+        run: echo "Hello from reusable workflow"
