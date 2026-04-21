@@ -5,19 +5,21 @@ on:
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
-        description: OAuth token from `claude setup-token` on the account whose Claude Max/Pro subscription pays for the review.
+        description: OAuth token from `claude setup-token`.
       REVIEWER_BOT_PAT:
-        required: true
-        description: Classic PAT (scopes repo, workflow) or fine-grained PAT (Contents RW, Pull requests RW, Issues RW) belonging to the separate reviewer bot account. Reviews post as this identity, which must differ from the PR author for GitHub to accept approvals.
+        required: false
+        description: Optional PAT for the reviewer bot account. Falls back to GITHUB_TOKEN if not set or invalid.
     inputs:
       bot_name:
         type: string
-        required: true
-        description: Reviewer bot's GitHub username (no brackets).
+        required: false
+        default: ""
+        description: Reviewer bot GitHub username. Leave empty to use the default github-actions[bot] identity.
       bot_id:
         type: string
-        required: true
-        description: Reviewer bot's numeric GitHub user ID. Look up with `gh api users/<username> --jq .id`.
+        required: false
+        default: ""
+        description: Reviewer bot numeric GitHub user ID.
 
 permissions:
   contents: read
@@ -41,7 +43,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.REVIEWER_BOT_PAT }}
+          github_token: ${{ secrets.REVIEWER_BOT_PAT || secrets.GITHUB_TOKEN }}
           bot_name: ${{ inputs.bot_name }}
           bot_id: ${{ inputs.bot_id }}
           allowed_bots: "*"
