@@ -44,3 +44,18 @@ jobs:
             --dangerously-skip-permissions \
             --output-format text \
             "$PROMPT"
+
+      - name: Create fix issue if changes requested
+        if: always()
+        shell: bash
+        run: |
+          STATE=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length' 2>/dev/null || echo 0)
+          if [ "$STATE" -gt 0 ]; then
+            BODY=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
+              --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | last | .body' 2>/dev/null)
+            TITLE="Fix needed: PR #${PR_NUMBER} on branch ${HEAD_REF}"
+            printf '%s\n\n%s' "PR #${PR_NUMBER} branch \`${HEAD_REF}\` needs fixes." "$BODY" > /tmp/fix-body.txt
+            gh issue create --title "$TITLE" --body-file /tmp/fix-body.txt --label "agent-fix"
+            echo "Created fix issue for PR #${PR_NUMBER}"
+          fi
