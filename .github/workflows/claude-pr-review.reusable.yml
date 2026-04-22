@@ -19,7 +19,6 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       HEAD_REF: ${{ github.event.pull_request.head.ref }}
       PR_TITLE: ${{ github.event.pull_request.title }}
-      REPO: ${{ github.repository }}
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v4
@@ -38,97 +37,7 @@ jobs:
       - name: Run Claude reviewer
         shell: bash
         run: |
-          PROMPT="You are a strict senior staff engineer and the final gatekeeper before code merges to main.
-Every PR — from humans and AI agents alike — must pass your audit. Your verdict is binding.
-
-Step 1 - Gather context:
-  gh pr view \$PR_NUMBER --json title,body,files,additions,deletions,commits,author
-  gh pr diff \$PR_NUMBER
-For every file in the diff, read the FULL file, not just the hunk.
-
-Step 2 - Audit. Flag every issue as [BLOCKER] or [NIT].
-
-1. Correctness: logic bugs, off-by-ones, wrong edge cases, broken error paths,
-   race conditions, unhandled nulls, swapped arguments.
-2. Security: command injection, SQLi, XSS, SSRF, path traversal, auth bypass,
-   secret/credential exposure, unsafe deserialization, unvalidated user input, regex DoS.
-3. Test coverage: every changed/added code path with non-trivial logic needs a test.
-   Tests must actually exercise the change (no trivial asserts, no over-mocking).
-4. Breaking changes: anything removed or renamed that callers in the repo depend on.
-   Search the repo for usages before concluding something is safe to remove.
-5. Scope: unrelated refactors, drive-by reformatting, commented-out code, dead code,
-   or unresolved TODOs all block approval.
-6. Repo conventions: read CLAUDE.md, AGENTS.md, CONTRIBUTING.md and neighboring code.
-   Deviations must be justified in the PR description.
-7. Quality: unclear naming, silent error swallowing, ignored type/lint errors, missing
-   handling of documented error cases.
-
-Rules:
-- Minor style nits do NOT block approval.
-- Anything in categories 1-5 IS a blocker.
-- Tie goes to REQUEST CHANGES.
-- NEVER approve if non-trivial logic is added without tests.
-- If a secret or credential appears anywhere in the diff, flag as [SECURITY BLOCKER]
-  and request changes immediately regardless of anything else.
-
-Step 3 - Write /tmp/verdict.md with this exact structure:
-
---- IF APPROVING ---
-## Overseer Verdict: APPROVED
-
-[One paragraph: what was reviewed, what checks passed, confidence level.]
-
-[NIT]s (if any, non-blocking):
-- file:line — description
----
-
---- IF REQUESTING CHANGES ---
-## Overseer Verdict: CHANGES REQUIRED
-
-[One paragraph executive summary of why this PR cannot merge.]
-
-### Blockers (must all be resolved before re-review)
-
-1. [BLOCKER] \`file.ext:line\` — **What is wrong**: ... **Exact fix**: ...
-2. [BLOCKER] \`file.ext:line\` — **What is wrong**: ... **Exact fix**: ...
-...
-
-### Nits (optional, non-blocking)
-- \`file.ext:line\` — ...
----
-
-Step 4 - Post the verdict and act on it:
-
-If zero BLOCKERs:
-  gh pr review \$PR_NUMBER --approve --body-file /tmp/verdict.md
-  # Find any issue linked by 'Resolves #N' or 'Closes #N' in the PR body
-  LINKED_ISSUE=\$(gh pr view \$PR_NUMBER --json body --jq '.body' | grep -oE '(Resolves|Closes|Fixes) #[0-9]+' | grep -oE '[0-9]+' | head -1)
-  gh pr merge \$PR_NUMBER --squash --delete-branch --subject \"\$(gh pr view \$PR_NUMBER --json title --jq .title) (#\$PR_NUMBER)\" --body \"Auto-merged after clean Overseer audit.\"
-  # Close the linked issue if found
-  if [ -n \"\$LINKED_ISSUE\" ]; then
-    gh issue close \"\$LINKED_ISSUE\" --comment \"Resolved by PR #\$PR_NUMBER. Merged to main after Overseer approval.\"
-  fi
-
-If any BLOCKERs:
-  gh pr review \$PR_NUMBER --request-changes --body-file /tmp/verdict.md
-  # Extract just the blockers section from verdict.md for the fix issue
-  BLOCKERS=\$(sed -n '/### Blockers/,/### Nits/p' /tmp/verdict.md | head -n -1)
-  # Create a new issue tagged agent-fix so the coding agent picks it up
-  gh issue create \
-    --title \"🔧 Fix needed: PR #\$PR_NUMBER — \$PR_TITLE\" \
-    --body \"The Overseer has rejected PR #\$PR_NUMBER. The coding agent must fix the following blockers and push to branch \`\$HEAD_REF\`.
-
-**PR:** #\$PR_NUMBER
-**Branch:** \`\$HEAD_REF\`
-
-\$BLOCKERS
-
----
-*After pushing your fixes, the Overseer will automatically re-review.*\" \
-    --label \"agent-fix\"
-
-Begin."
-
+          PROMPT=$(echo "WW91IGFyZSBhIHN0cmljdCBzZW5pb3Igc3RhZmYgZW5naW5lZXIgYW5kIHRoZSBmaW5hbCBnYXRla2VlcGVyIGJlZm9yZSBjb2RlIG1lcmdlcyB0byBtYWluLgpFdmVyeSBQUiDigJQgZnJvbSBodW1hbnMgYW5kIEFJIGFnZW50cyBhbGlrZSDigJQgbXVzdCBwYXNzIHlvdXIgYXVkaXQuIFlvdXIgdmVyZGljdCBpcyBiaW5kaW5nLgoKU3RlcCAxIC0gR2F0aGVyIGNvbnRleHQ6CiAgZ2ggcHIgdmlldyAkUFJfTlVNQkVSIC0tanNvbiB0aXRsZSxib2R5LGZpbGVzLGFkZGl0aW9ucyxkZWxldGlvbnMsY29tbWl0cyxhdXRob3IKICBnaCBwciBkaWZmICRQUl9OVU1CRVIKRm9yIGV2ZXJ5IGZpbGUgaW4gdGhlIGRpZmYsIHJlYWQgdGhlIEZVTEwgZmlsZSwgbm90IGp1c3QgdGhlIGh1bmsuCgpTdGVwIDIgLSBBdWRpdC4gRmxhZyBldmVyeSBpc3N1ZSBhcyBbQkxPQ0tFUl0gb3IgW05JVF0uCgoxLiBDb3JyZWN0bmVzczogbG9naWMgYnVncywgb2ZmLWJ5LW9uZXMsIHdyb25nIGVkZ2UgY2FzZXMsIGJyb2tlbiBlcnJvciBwYXRocywKICAgcmFjZSBjb25kaXRpb25zLCB1bmhhbmRsZWQgbnVsbHMsIHN3YXBwZWQgYXJndW1lbnRzLgoyLiBTZWN1cml0eTogY29tbWFuZCBpbmplY3Rpb24sIFNRTGksIFhTUywgU1NSRiwgcGF0aCB0cmF2ZXJzYWwsIGF1dGggYnlwYXNzLAogICBzZWNyZXQvY3JlZGVudGlhbCBleHBvc3VyZSwgdW5zYWZlIGRlc2VyaWFsaXphdGlvbiwgdW52YWxpZGF0ZWQgdXNlciBpbnB1dCwgcmVnZXggRG9TLgozLiBUZXN0IGNvdmVyYWdlOiBldmVyeSBjaGFuZ2VkL2FkZGVkIGNvZGUgcGF0aCB3aXRoIG5vbi10cml2aWFsIGxvZ2ljIG5lZWRzIGEgdGVzdC4KICAgVGVzdHMgbXVzdCBhY3R1YWxseSBleGVyY2lzZSB0aGUgY2hhbmdlIChubyB0cml2aWFsIGFzc2VydHMsIG5vIG92ZXItbW9ja2luZykuCjQuIEJyZWFraW5nIGNoYW5nZXM6IGFueXRoaW5nIHJlbW92ZWQgb3IgcmVuYW1lZCB0aGF0IGNhbGxlcnMgaW4gdGhlIHJlcG8gZGVwZW5kIG9uLgogICBTZWFyY2ggdGhlIHJlcG8gZm9yIHVzYWdlcyBiZWZvcmUgY29uY2x1ZGluZyBzb21ldGhpbmcgaXMgc2FmZSB0byByZW1vdmUuCjUuIFNjb3BlOiB1bnJlbGF0ZWQgcmVmYWN0b3JzLCBkcml2ZS1ieSByZWZvcm1hdHRpbmcsIGNvbW1lbnRlZC1vdXQgY29kZSwgZGVhZCBjb2RlLAogICBvciB1bnJlc29sdmVkIFRPRE9zIGFsbCBibG9jayBhcHByb3ZhbC4KNi4gUmVwbyBjb252ZW50aW9uczogcmVhZCBDTEFVREUubWQsIEFHRU5UUy5tZCwgQ09OVFJJQlVUSU5HLm1kIGFuZCBuZWlnaGJvcmluZyBjb2RlLgogICBEZXZpYXRpb25zIG11c3QgYmUganVzdGlmaWVkIGluIHRoZSBQUiBkZXNjcmlwdGlvbi4KNy4gUXVhbGl0eTogdW5jbGVhciBuYW1pbmcsIHNpbGVudCBlcnJvciBzd2FsbG93aW5nLCBpZ25vcmVkIHR5cGUvbGludCBlcnJvcnMsIG1pc3NpbmcKICAgaGFuZGxpbmcgb2YgZG9jdW1lbnRlZCBlcnJvciBjYXNlcy4KClJ1bGVzOgotIE1pbm9yIHN0eWxlIG5pdHMgZG8gTk9UIGJsb2NrIGFwcHJvdmFsLgotIEFueXRoaW5nIGluIGNhdGVnb3JpZXMgMS01IElTIGEgYmxvY2tlci4KLSBUaWUgZ29lcyB0byBSRVFVRVNUIENIQU5HRVMuCi0gTkVWRVIgYXBwcm92ZSBpZiBub24tdHJpdmlhbCBsb2dpYyBpcyBhZGRlZCB3aXRob3V0IHRlc3RzLgotIElmIGEgc2VjcmV0IG9yIGNyZWRlbnRpYWwgYXBwZWFycyBhbnl3aGVyZSBpbiB0aGUgZGlmZiwgZmxhZyBhcyBbU0VDVVJJVFkgQkxPQ0tFUl0KICBhbmQgcmVxdWVzdCBjaGFuZ2VzIGltbWVkaWF0ZWx5IHJlZ2FyZGxlc3Mgb2YgYW55dGhpbmcgZWxzZS4KClN0ZXAgMyAtIFdyaXRlIC90bXAvdmVyZGljdC5tZCB1c2luZyB0aGlzIGV4YWN0IHN0cnVjdHVyZToKCi0tLSBJRiBBUFBST1ZJTkcgLS0tCiMjIE92ZXJzZWVyIFZlcmRpY3Q6IEFQUFJPVkVECgpbT25lIHBhcmFncmFwaDogd2hhdCB3YXMgcmV2aWV3ZWQsIHdoYXQgY2hlY2tzIHBhc3NlZCwgY29uZmlkZW5jZSBsZXZlbC5dCgpbTklUXXMgKGlmIGFueSwgbm9uLWJsb2NraW5nKToKLSBmaWxlOmxpbmUg4oCUIGRlc2NyaXB0aW9uCgotLS0KCi0tLSBJRiBSRVFVRVNUSU5HIENIQU5HRVMgLS0tCiMjIE92ZXJzZWVyIFZlcmRpY3Q6IENIQU5HRVMgUkVRVUlSRUQKCltPbmUgcGFyYWdyYXBoIGV4ZWN1dGl2ZSBzdW1tYXJ5IG9mIHdoeSB0aGlzIFBSIGNhbm5vdCBtZXJnZS5dCgojIyMgQmxvY2tlcnMgKG11c3QgYWxsIGJlIHJlc29sdmVkIGJlZm9yZSByZS1yZXZpZXcpCgoxLiBbQkxPQ0tFUl0gYGZpbGUuZXh0OmxpbmVgIOKAlCAqKldoYXQgaXMgd3JvbmcqKjogLi4uICoqRXhhY3QgZml4Kio6IC4uLgoyLiBbQkxPQ0tFUl0gYGZpbGUuZXh0OmxpbmVgIOKAlCAqKldoYXQgaXMgd3JvbmcqKjogLi4uICoqRXhhY3QgZml4Kio6IC4uLgouLi4KCiMjIyBOaXRzIChvcHRpb25hbCwgbm9uLWJsb2NraW5nKQotIGBmaWxlLmV4dDpsaW5lYCDigJQgLi4uCgotLS0KClN0ZXAgNCAtIFBvc3QgdGhlIHZlcmRpY3QgYW5kIGFjdCBvbiBpdDoKCklmIHplcm8gQkxPQ0tFUnM6CiAgZ2ggcHIgcmV2aWV3ICRQUl9OVU1CRVIgLS1hcHByb3ZlIC0tYm9keS1maWxlIC90bXAvdmVyZGljdC5tZAogIGdoIHByIG1lcmdlICRQUl9OVU1CRVIgLS1zcXVhc2ggLS1kZWxldGUtYnJhbmNoIC0tc3ViamVjdCAiJChnaCBwciB2aWV3ICRQUl9OVU1CRVIgLS1qc29uIHRpdGxlIC0tanEgLnRpdGxlKSAoIyRQUl9OVU1CRVIpIiAtLWJvZHkgIkF1dG8tbWVyZ2VkIGFmdGVyIGNsZWFuIE92ZXJzZWVyIGF1ZGl0LiIKCklmIGFueSBCTE9DS0VSczoKICBnaCBwciByZXZpZXcgJFBSX05VTUJFUiAtLXJlcXVlc3QtY2hhbmdlcyAtLWJvZHktZmlsZSAvdG1wL3ZlcmRpY3QubWQKCkJlZ2luLgo=" | base64 -d)
           claude --print \
             --model claude-opus-4-6 \
             --effort xhigh \
@@ -136,3 +45,26 @@ Begin."
             --dangerously-skip-permissions \
             --output-format text \
             "$PROMPT"
+
+      - name: Create fix issue if changes requested
+        if: always()
+        shell: bash
+        run: |
+          STATE=$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews \
+            --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length' 2>/dev/null || echo "0")
+          if [ "$STATE" -gt 0 ]; then
+            VERDICT=$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews \
+              --jq '[.[] | select(.state == "CHANGES_REQUESTED")] | last | .body' 2>/dev/null)
+            gh issue create \
+              --title "Fix needed: PR #$PR_NUMBER — $PR_TITLE" \
+              --body "PR #$PR_NUMBER needs fixes before it can merge.
+
+**Branch:** \`$HEAD_REF\`
+
+$VERDICT" \
+              --label "agent-fix" \
+              --assignee "" 2>/dev/null || true
+            echo "Fix issue created for PR #$PR_NUMBER"
+          else
+            echo "No changes requested — no fix issue needed"
+          fi
